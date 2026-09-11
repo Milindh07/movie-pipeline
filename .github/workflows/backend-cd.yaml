@@ -1,63 +1,67 @@
-name: Frontend CD
+name: Backend CD
 
 on:
   push:
     branches: [main]
-    paths:
-      - "starter/frontend/**"
-      - ".github/workflows/frontend-cd.yml"
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: ${{ secrets.FRONTEND_ECR_REPOSITORY }}
+  ECR_REPOSITORY: ${{ secrets.BACKEND_ECR_REPOSITORY }}
   EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
 jobs:
   lint:
+    name: Backend lint
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: starter/frontend
+        working-directory: starter/backend
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version-file: starter/frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: starter/frontend/package-lock.json
+          python-version: "3.10"
 
-      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y python3-dev build-essential
 
-      - run: npm run lint
+      - run: pip install pipenv
+
+      - run: pipenv install --dev
+
+      - run: pipenv run lint
 
   test:
+    name: Backend tests
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: starter/frontend
+        working-directory: starter/backend
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version-file: starter/frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: starter/frontend/package-lock.json
+          python-version: "3.10"
 
-      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y python3-dev build-essential
 
-      - run: CI=true npm test
+      - run: pip install pipenv
+
+      - run: pipenv install --dev
+
+      - run: pipenv run test
 
   build:
+    name: Build and publish backend image
     runs-on: ubuntu-latest
     needs: [lint, test]
     defaults:
       run:
-        working-directory: starter/frontend
+        working-directory: starter/backend
 
     steps:
       - uses: actions/checkout@v4
@@ -70,22 +74,17 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build frontend Docker image
-        run: |
-          docker build \
-            --build-arg=REACT_APP_MOVIE_API_URL=${{ secrets.REACT_APP_MOVIE_API_URL }} \
-            --tag $ECR_REPOSITORY:${{ github.sha }} .
-
-      - name: Push frontend Docker image
-        run: |
+      - run: |
+          docker build --tag $ECR_REPOSITORY:${{ github.sha }} .
           docker push $ECR_REPOSITORY:${{ github.sha }}
 
   deploy:
+    name: Deploy backend to EKS
     runs-on: ubuntu-latest
     needs: build
     defaults:
       run:
-        working-directory: starter/frontend/k8s
+        working-directory: starter/backend/k8s
 
     steps:
       - uses: actions/checkout@v4
@@ -104,8 +103,8 @@ jobs:
 
       - name: Update Kubernetes image
         run: |
-          sed -i "s|image: frontend|image: $ECR_REPOSITORY:${{ github.sha }}|g" deployment.yaml
-          echo "Updated frontend image:"
+          sed -i "s|image: backend|image: $ECR_REPOSITORY:${{ github.sha }}|g" deployment.yaml
+          echo "Updated deployment image:"
           grep "image:" deployment.yaml
 
       - name: Deploy to EKS
@@ -114,11 +113,11 @@ jobs:
 
       - name: Check deployment
         run: |
-          kubectl rollout status deployment/frontend --timeout=5m
+          kubectl rollout status deployment/backend --timeout=5m
 
       - name: Verify deployment
         run: |
-          kubectl get deployment frontend
+          kubectl get deployment backend
           kubectl get pods
-          kubectl get deployment frontend -o jsonpath="{.spec.template.spec.containers[0].image}"
+          kubectl get deployment backend -o jsonpath="{.spec.template.spec.containers[0].image}"
           echo
