@@ -4,17 +4,58 @@ import axios from 'axios';
 
 function MovieList({ onMovieClick }) {
   const [movies, setMovies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get(`${process.env.REACT_APP_MOVIE_API_URL}/movies`).then((response) => {
-      setMovies(response.data.movies);
-    });
+    const apiUrl = process.env.REACT_APP_MOVIE_API_URL;
+
+    if (!apiUrl) {
+      setError('Movie API URL is not configured.');
+      setLoading(false);
+      return;
+    }
+
+    axios
+      .get(`${apiUrl.replace(/\/+$/, '')}/movies`)
+      .then((response) => {
+        const movieData = response.data?.movies;
+
+        if (!Array.isArray(movieData)) {
+          throw new Error('Unexpected API response format.');
+        }
+
+        setMovies(movieData);
+      })
+      .catch((err) => {
+        console.error('Error loading movies:', err);
+        setError('Unable to load movies. Please try again later.');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
+
+  if (loading) {
+    return <p>Loading movies...</p>;
+  }
+
+  if (error) {
+    return <p>{error}</p>;
+  }
+
+  if (movies.length === 0) {
+    return <p>No movies found.</p>;
+  }
 
   return (
     <ul>
       {movies.map((movie) => (
-        <li className="movieItem" key={movie.id} onClick={() => onMovieClick(movie)}>
+        <li
+          className="movieItem"
+          key={movie.id}
+          onClick={() => onMovieClick(movie)}
+        >
           {movie.title}
         </li>
       ))}
